@@ -24,7 +24,8 @@ This repository contains the official implementation of our research on high-res
 ├── evaluate_3d.py     # 3D tomographic slicing & voxel rendering script
 ├── train_data/        # Pre-generated 2D and 3D training/testing datasets (.npy)
 ├── models/            # Pre-trained checkpoints (2D Full, 2D Half, 3D Full)
-└── output/            # Directory containing evaluation outputs and images
+├── output/            # Directory containing evaluation outputs and images
+└── tests/             # Test suite
 ```
 
 ## Requirements
