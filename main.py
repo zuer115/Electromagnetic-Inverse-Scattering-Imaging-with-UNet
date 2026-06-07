@@ -36,6 +36,8 @@ def main():
                         help='List of output formats, e.g., npy png pdf svg (default: npy png)')
     parser.add_argument('-b', '--batch_size', type=int, default=16,
                         help='Inference batch size (default: 16)')
+    parser.add_argument('--eps_bg', type=float, default=1.5,
+                        help='Background relative permittivity (default: 1.5)')
 
     args = parser.parse_args()
 
@@ -66,13 +68,13 @@ def main():
     # 1. Physics Engine
     # ==========================================
     class ElectromagneticsEngine:
-        def __init__(self, dim, mode):
+        def __init__(self, dim, mode, eps_bg=1.5):
             self.dim = dim
             self.mode = mode
             self.FREQ = 2.45e9
             self.C0 = 299792458.0
             self.K0 = 2 * np.pi * self.FREQ / self.C0
-            self.EPS_BG = 1.5
+            self.EPS_BG = eps_bg
             self.K_BG = self.K0 * np.sqrt(self.EPS_BG)
 
             self.L = 0.25
@@ -92,7 +94,7 @@ def main():
                 X, Y = np.meshgrid(x_arr, x_arr)
                 r_domain_np = np.vstack((X.flatten(), Y.flatten())).T
                 r_domain_gpu = torch.from_numpy(r_domain_np).to(device=device, dtype=torch.float32)
-                dist_DD = torch.cdist(r_domain_np, r_domain_np)
+                dist_DD = torch.cdist(r_domain_gpu, r_domain_gpu)
                 dist_DD.fill_diagonal_(1e-8)
                 J0 = torch.special.bessel_j0(self.K_BG * dist_DD)
                 Y0 = torch.special.bessel_y0(self.K_BG * dist_DD)
@@ -110,6 +112,8 @@ def main():
                 self.r_ant = torch.stack((self.R_ANT * torch.cos(angles), self.R_ANT * torch.sin(angles)), dim=-1)
 
             else:  # 3D
+                if self.mode == 'half_circle':
+                    raise ValueError("3D half_circle is not supported. Use full_circle for 3D data.")
                 X, Y, Z = np.meshgrid(x_arr, x_arr, x_arr, indexing='ij')
                 r_domain_np = np.vstack((X.flatten(), Y.flatten(), Z.flatten())).T
                 dist_DD = scipy.spatial.distance_matrix(r_domain_np, r_domain_np).astype(np.float32)
@@ -146,7 +150,7 @@ def main():
             self.K_conj = torch.conj(self.K_kernel)
 
             # Background subtraction and sensitivity map computation
-            eps_bg = torch.ones(self.N_CELLS, device=device, dtype=DTYPE) * 1.5
+            eps_bg = torch.ones(self.N_CELLS, device=device, dtype=DTYPE) * self.EPS_BG
             chi_bg = eps_bg - 1.0
             A_bg = torch.eye(self.N_CELLS, device=device, dtype=DTYPE) - (self.K0**2) * self.G_DD * chi_bg.unsqueeze(0)
             E_tot_bg = torch.linalg.solve(A_bg, self.E_inc)
@@ -163,8 +167,8 @@ def main():
                 bp_gpu = torch.einsum('b r t, d r t -> b d', X_diff, self.K_conj).abs()
                 bp_gpu = bp_gpu / (self.S_map.unsqueeze(0) + 1e-6)
 
-                # Amplitude scaling
-                bp_gpu = bp_gpu * (10.0 if self.dim == '2d' else 1000.0)
+                # Amplitude scaling (must match training-time scaling)
+                bp_gpu = bp_gpu * (500.0 if self.dim == '2d' else 1000.0)
 
                 shape = (-1, 1, self.N, self.N) if self.dim == '2d' else (-1, 1, self.N, self.N, self.N)
                 return bp_gpu.view(shape)
@@ -254,7 +258,7 @@ def main():
     print(f"[INFO] Data loaded successfully. Total samples: {num_samples}.")
 
     # Initialize Engine and Model
-    engine = ElectromagneticsEngine(args.dim, args.mode)
+    engine = ElectromagneticsEngine(args.dim, args.mode, args.eps_bg)
     model = SimpleUNet(args.dim).to(device)
 
     if not os.path.exists(args.weights):

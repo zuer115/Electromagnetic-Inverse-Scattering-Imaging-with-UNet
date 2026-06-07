@@ -73,7 +73,7 @@ def main():
     X, Y = np.meshgrid(x_arr, y_arr)
     r_domain_np = np.vstack((X.flatten(), Y.flatten())).T
     r_domain_gpu = torch.from_numpy(r_domain_np).to(device=device, dtype=torch.float32)
-    dist_DD = torch.cdist(r_domain_np, r_domain_np)
+    dist_DD = torch.cdist(r_domain_gpu, r_domain_gpu)
     dist_DD.fill_diagonal_(1e-8)
     J0 = torch.special.bessel_j0(K_BG * dist_DD)
     Y0 = torch.special.bessel_y0(K_BG * dist_DD)
