@@ -110,6 +110,7 @@ def main():
                 else:
                     angles = torch.linspace(-np.pi/2, np.pi/2, self.N_ANT, device=device)
                 self.r_ant = torch.stack((self.R_ANT * torch.cos(angles), self.R_ANT * torch.sin(angles)), dim=-1)
+                self.G_DD = G_DD_base_gpu
 
             else:  # 3D
                 if self.mode == 'half_circle':
@@ -133,9 +134,9 @@ def main():
                 self.r_ant = torch.stack((self.R_ANT * torch.cos(theta) * torch.sin(phi),
                                           self.R_ANT * torch.sin(theta) * torch.sin(phi),
                                           self.R_ANT * torch.cos(phi)), dim=-1)
-
+                self.G_DD = torch.from_numpy(G_DD_np).to(device=device, dtype=DTYPE)
+            
             self.r_domain = torch.from_numpy(r_domain_np).to(device=device, dtype=torch.float32)
-            self.G_DD = torch.from_numpy(G_DD_np).to(device=device, dtype=DTYPE)
 
             # Precompute G_SD and E_inc
             dist_SD = torch.cdist(self.r_ant.unsqueeze(0), self.r_domain.unsqueeze(0)).squeeze(0)
@@ -181,19 +182,21 @@ def main():
             super().__init__()
             conv = nn.Conv3d if is_3d else nn.Conv2d
             bn = nn.BatchNorm3d if is_3d else nn.BatchNorm2d
-            self.net = nn.Sequential(
+            
+            # [Bug Fixed]: Corrected variable name back to `self.double_conv` to strictly match state_dict keys.
+            self.double_conv = nn.Sequential(
                 conv(in_channels, out_channels, 3, padding=1, bias=False), bn(out_channels), nn.ReLU(inplace=True),
                 conv(out_channels, out_channels, 3, padding=1, bias=False), bn(out_channels), nn.ReLU(inplace=True)
             )
-        def forward(self, x):
-            return self.net(x)
+        def forward(self, x): 
+            return self.double_conv(x)
 
     class UpBlock(nn.Module):
         def __init__(self, in_channels, out_channels, is_3d=False):
             super().__init__()
             mode = 'trilinear' if is_3d else 'bilinear'
             conv = nn.Conv3d if is_3d else nn.Conv2d
-            bn = nn.BatchNorm3d if is_3d else nn.BatchNorm2d
+            bn = nn.BatchNorm3d if is_3d else nn.BatchNorm3d if is_3d else nn.BatchNorm2d
             self.up = nn.Sequential(
                 nn.Upsample(scale_factor=2, mode=mode, align_corners=True),
                 conv(in_channels, in_channels // 2, 3, padding=1, bias=False),
@@ -211,7 +214,8 @@ def main():
             pool = nn.MaxPool3d if is_3d else nn.MaxPool2d
             conv = nn.Conv3d if is_3d else nn.Conv2d
 
-            self.downs, self.ups = nn.ModuleList(), nn.ModuleList()
+            self.downs = nn.ModuleList()
+            self.ups = nn.ModuleList()
             self.pool = pool(2, 2)
 
             in_ch = 1
