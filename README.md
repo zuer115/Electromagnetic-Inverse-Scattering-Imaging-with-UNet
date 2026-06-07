@@ -50,6 +50,7 @@ We provide a ready-to-use command-line interface for deploying the trained model
 | `-f, --formats` | `npy png` | Output formats, e.g., `npy png pdf svg` |
 | `-b, --batch_size` | `16` | Inference batch size |
 | `--cpu` | *(flag)* | Use CPU *only* |
+| `--bp` | *(flag)* | Run Physical Prior Extraction *only* |
 
 **Example (2D Full-Circle):**
 ```bash

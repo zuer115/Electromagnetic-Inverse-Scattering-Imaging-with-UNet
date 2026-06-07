@@ -38,6 +38,8 @@ def main():
                         help='Inference batch size (default: 16)')
     parser.add_argument('--eps_bg', type=float, default=1.5,
                         help='Background relative permittivity (default: 1.5)')
+    parser.add_argument('--bp', action='store_true', default=False,
+                        help='Only use Physical Prior Extraction and do not use UNet')
 
     args = parser.parse_args()
 
@@ -263,16 +265,18 @@ def main():
 
     # Initialize Engine and Model
     engine = ElectromagneticsEngine(args.dim, args.mode, args.eps_bg)
-    model = SimpleUNet(args.dim).to(device)
+    
+    if not args.bp:
+        model = SimpleUNet(args.dim).to(device)
 
-    if not os.path.exists(args.weights):
-        sys.stderr.write(f"Error: Weights file '{args.weights}' not found.\n\n")
-        parser.print_help()
-        sys.exit(1)
+        if not os.path.exists(args.weights):
+            sys.stderr.write(f"Error: Weights file '{args.weights}' not found.\n\n")
+            parser.print_help()
+            sys.exit(1)
 
-    model.load_state_dict(torch.load(args.weights, map_location=device))
-    model.eval()
-    print(f"[INFO] Model weights loaded: {args.weights}")
+        model.load_state_dict(torch.load(args.weights, map_location=device))
+        model.eval()
+        print(f"[INFO] Model weights loaded: {args.weights}")
 
     # Inference Loop
     os.makedirs(args.out_dir, exist_ok=True)
@@ -288,7 +292,7 @@ def main():
             b_end = min((b + 1) * args.batch_size, num_samples)
 
             bp_tensor = engine.run_db_bp(X_input[b_start:b_end])
-            pred_norm = model(bp_tensor).cpu().numpy().squeeze(1)
+            pred_norm = bp_tensor.cpu().numpy().squeeze(1) if args.bp else model(bp_tensor).cpu().numpy().squeeze(1) 
             pred_phys = denormalize(pred_norm)
 
             predictions.append(pred_phys)
